@@ -72,7 +72,7 @@
 ;; simple parser implementation
 
 (define-empty-tokens arith-token
-  (TRUE FALSE IF THEN ELSE ZERO SUCC PRED ISZERO OPEN CLOSE EOF))
+  (TRUE FALSE IF THEN ELSE ZERO SUCC PRED ISZERO OPEN CLOSE SEMICOLON EOF))
 
 (define arith-lex
   (lexer-src-pos
@@ -87,6 +87,7 @@
    ["iszero" (token-ISZERO)]
    ["(" (token-OPEN)]
    [")" (token-CLOSE)]
+   [";" (token-SEMICOLON)]
    [(eof) (token-EOF)]
    [whitespace (return-without-pos (arith-lex input-port))]
    [any-char (let [(pos start-pos)]
@@ -97,28 +98,33 @@
 (define (arith-parse in)
   (port-count-lines! in)
   (define (gen) (arith-lex in))
-  ((parser
-    (src-pos)
-    (tokens arith-token)
-    (start term)
-    (end EOF)
-    (error (lambda (ok name value start-pos end-pos)
-             (printf "ERROR: invalid token '~a' at line ~a column ~a\n"
-                     name (position-line start-pos) (position-col start-pos))))
-    (grammar
-     [term
-      ((TRUE) (TmTrue $1-start-pos))
-      ((FALSE) (TmFalse $1-start-pos))
-      ((ZERO) (TmZero $1-start-pos))
-      ((OPEN term CLOSE) $2)
-      ((IF term THEN term ELSE term) (TmIf $1-start-pos $2 $4 $6))
-      ((SUCC term) (TmSucc $1-start-pos $2))
-      ((PRED term) (TmPred $1-start-pos $2))
-      ((ISZERO term) (TmIsZero $1-start-pos $2))]))
-   gen))
+  (define lalr-parser
+    (parser
+     (src-pos)
+     (tokens arith-token)
+     (start term-list)
+     (end EOF)
+     (error (lambda (ok name value start-pos end-pos)
+              (printf "ERROR: invalid token '~a' at line ~a column ~a\n"
+                      name (position-line start-pos) (position-col start-pos))))
+     (grammar
+      [term
+       ((TRUE) (TmTrue $1-start-pos))
+       ((FALSE) (TmFalse $1-start-pos))
+       ((ZERO) (TmZero $1-start-pos))
+       ((OPEN term CLOSE) $2)
+       ((IF term THEN term ELSE term) (TmIf $1-start-pos $2 $4 $6))
+       ((SUCC term) (TmSucc $1-start-pos $2))
+       ((PRED term) (TmPred $1-start-pos $2))
+       ((ISZERO term) (TmIsZero $1-start-pos $2))]
+      [term-list
+       (() '())
+       ((term-list term SEMICOLON) (cons $2 $1))])))
+  (reverse (lalr-parser gen)))
 
 
 ;; main starting point
-(printf "~a\n"
-        (val-to-string (eval (arith-parse (current-input-port)))))
+(for-each (lambda (term)
+            (printf "~a\n" (val-to-string (eval term))))
+          (arith-parse (current-input-port)))
 
