@@ -52,14 +52,11 @@
       [else (loop (+ index 1) (cdr names))])))
 
 ;; Shifts the context by inserting a new name at index 0.
-;; The new name must not be in the context currently.
 (define (ctxshiftin ctx name)
-  (assert (not (name->index ctx name)) (format "name ~a already exists." name))
   (CtxImpl (+ (ctxlength ctx) 1) (cons name (CtxImpl-names ctx))))
 
-;; The new name must not be in the context currently.
+;; Append the new name after the context.
 (define (ctxappend ctx name)
-  (assert (not (name->index ctx name)) (format "name ~a already exists." name))
   (CtxImpl (+ (ctxlength ctx) 1) (append (ctxnames ctx) name)))
 
 ;; Merge two ctx into one
