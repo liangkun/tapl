@@ -55,7 +55,22 @@
 ;; The new name must not be in the context currently.
 (define (ctxshiftin ctx name)
   (assert (not (name->index ctx name)) (format "name ~a already exists." name))
-  (CtxImpl (+ (ctxlength) 1) (cons name (CtxImpl-names ctx))))
+  (CtxImpl (+ (ctxlength ctx) 1) (cons name (CtxImpl-names ctx))))
+
+;; The new name must not be in the context currently.
+(define (ctxappend ctx name)
+  (assert (not (name->index ctx name)) (format "name ~a already exists." name))
+  (CtxImpl (+ (ctxlength ctx) 1) (append (ctxnames ctx) name)))
+
+;; Merge two ctx into one
+(define (ctxmerge master slave)
+  (let loop ([ctx master] [names (ctxnames slave)])
+    (if (null? names)
+        ctx
+        (let ([name (car names)] [names (cdr names)])
+          (if (name->index ctx name)
+              (loop ctx names)
+              (loop (ctxshiftin ctx name) names))))))
 
 ;; Pick a distinct name in ctx.
 ;; Returns a new context with the distinct name added and the name.
@@ -68,7 +83,9 @@
 (define (term->string ctx term)
   (match term
     [(TmVar fi index length)
-     (assert (= length (ctxlength ctx)) (format "variable at ~a has a wrong ctx" fi))
+     (assert (= length (ctxlength ctx))
+             (format "variable at ~a has a wrong ctx expect: ~a, got: ~a"
+                     fi length (ctxlength ctx)))
      (index->name ctx index)]
     
     [(TmAbs _ t1 name)
@@ -168,8 +185,51 @@
   (reverse (lalr-parser gen)))
 
 ;; Normalize term, returns a ctx and the normalized term.
-(define (normalize terms)
-  (error 'TODO))
+;; Note: term is AstNode.
+(define (normalize term)
+  ;; Get free varable context from the term.
+  (define (get-frees-ctx frees binds term)
+      (match term
+        [(AstVar _ name)
+         (if (name->index binds name)
+             frees
+             (if (name->index frees name)
+                 frees
+                 (ctxshiftin frees name)))]
+        
+        [(AstAbs _ name body)
+         (get-frees-ctx frees (ctxshiftin binds name) body)]
+        
+        [(AstApp _ abs arg)
+         (let ([absfrees (get-frees-ctx frees binds abs)]
+               [argfrees (get-frees-ctx frees binds arg)])
+           (ctxmerge absfrees argfrees))]))
+  
+  (define frees (get-frees-ctx (make-ctx) (make-ctx) term))
+  
+  (define (normalize-rec term binds)
+    (match term
+      [(AstVar fi name)
+       (cond
+         [(name->index binds name) => (lambda (idx)
+                                        (TmVar fi
+                                               idx
+                                               (+ (ctxlength binds) (ctxlength frees))))]
+         [(name->index frees name) => (lambda (idx)
+                                        (TmVar fi
+                                               (+ idx (ctxlength binds))
+                                               (+ (ctxlength binds) (ctxlength frees))))]
+
+         [else (assert #f (format "Should not reach here: ~a\n" term))])]
+      
+      [(AstAbs fi name body)
+       (TmAbs fi (normalize-rec body (ctxshiftin binds name)) name)]
+      
+      [(AstApp fi abs arg)
+       (TmApp fi (normalize-rec abs binds) (normalize-rec arg binds))]))
+  
+  ;; let's get the result
+  (values frees (normalize-rec term (make-ctx))))
 
 ;; main starting point
 (for-each (lambda (term)
